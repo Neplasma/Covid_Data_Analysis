@@ -58,12 +58,93 @@ WHERE continent IS NOT NULL
 GROUP BY location
 ORDER BY Death_Rate_Per_Case DESC
 
--- Global Numbers Each Day
+-- Global Numbers New Cases and New Deaths Each Day
 SELECT CAST(date AS DATE) AS time, SUM(CAST(new_cases AS INT)) AS new_cases, SUM(CAST(new_deaths AS INT)) AS new_deaths, 
-CAST(SUM(CAST(new_deaths AS INT))/SUM(new_cases)*100 AS DECIMAL(10,2)) AS death_percentage
+CAST(SUM(CAST(new_deaths AS INT))/SUM(new_cases)*100 AS DECIMAL(10,2)) AS death_percentage -- can use CTE
 FROM CovidDataAnalysis..CovidDeaths
 WHERE continent IS NOT NULL
 GROUP BY date
 ORDER BY 1
 
--- Global Numbers Total
+-- Global Numbers Total 
+SELECT CAST(date AS DATE) AS time, SUM(CAST(total_cases AS INT)) AS total_cases, SUM(CAST(total_deaths AS INT)) AS total_deaths, 
+CAST(SUM(CAST(total_deaths AS INT))/SUM(total_cases)*100 AS DECIMAL(10,2)) AS death_percentage
+FROM CovidDataAnalysis..CovidDeaths
+WHERE continent IS NOT NULL
+GROUP BY date
+ORDER BY 1
+
+-- Join two tables
+-- Looking at Total Population vs Vaccination
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations,
+SUM(CONVERT(BIGINT,vac.new_vaccinations)) OVER (PARTITION BY dea.location ORDER BY dea.location,
+dea.date) AS total_vaccinated -- to use total_vaccinated in other calculations, a CTE or TEMP TABLE can be used, examples below
+FROM CovidDataAnalysis..CovidDeaths dea -- set table name as dea
+JOIN CovidDataAnalysis..CovidVaccinations vac -- set table name as vac
+	ON dea.location = vac.location
+	AND dea.date = vac.date
+WHERE dea.continent IS NOT NULL 
+AND vac.new_vaccinations IS NOT NULL
+ORDER BY 2,3
+
+
+-- USE CTE:common_table_expression
+WITH POPvsVAC (continent, location, date, population, new_vaccination, total_vaccinated) 
+AS (
+SELECT dea.continent, dea.location, CONVERT(date,dea.date), dea.population, vac.new_vaccinations,
+SUM(CONVERT(BIGINT,vac.new_vaccinations)) OVER (PARTITION BY dea.location ORDER BY dea.location,
+dea.date) AS total_vaccinated
+FROM CovidDataAnalysis..CovidDeaths dea -- set table name as dea
+JOIN CovidDataAnalysis..CovidVaccinations vac -- set table name as vac
+	ON dea.location = vac.location
+	AND dea.date = vac.date
+WHERE dea.continent IS NOT NULL 
+AND vac.new_vaccinations IS NOT NULL
+)
+SELECT *, CONVERT(DECIMAL(10,3),(total_vaccinated/population)*100) AS vac_rate
+FROM POPvsVAC
+ORDER BY 2,3
+
+-- TEMP TABLE
+DROP TABLE IF EXISTS #PercentPopulationVaccinated
+CREATE TABLE #PercentPopulationVaccinated ( -- #table means temporary  table
+	continent NVARCHAR(255),
+	location NVARCHAR(255), 
+	date DATE, 
+	population NUMERIC, 
+	new_vaccination NUMERIC, 
+	total_vaccinated NUMERIC
+)
+
+INSERT INTO #PercentPopulationVaccinated
+SELECT dea.continent, dea.location, CONVERT(date,dea.date), dea.population, vac.new_vaccinations,
+SUM(CONVERT(BIGINT,vac.new_vaccinations)) OVER (PARTITION BY dea.location ORDER BY dea.location,
+dea.date) AS total_vaccinated
+FROM CovidDataAnalysis..CovidDeaths dea -- set table name as dea
+JOIN CovidDataAnalysis..CovidVaccinations vac -- set table name as vac
+	ON dea.location = vac.location
+	AND dea.date = vac.date
+WHERE dea.continent IS NOT NULL 
+AND vac.new_vaccinations IS NOT NULL
+
+SELECT *, CONVERT(DECIMAL(10,3),(total_vaccinated/population)*100) AS vac_rate
+FROM #PercentPopulationVaccinated
+ORDER BY 2,3
+-- vac_rate could over 100% as new_vaccination did not specify whether it was 1st or 2nd jab
+
+
+-- Creating View to store data for later visualisation
+DROP VIEW IF EXISTS PercentPopulationVaccinated
+CREATE VIEW PercentPopulationVaccinated AS
+SELECT dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations,
+SUM(CONVERT(BIGINT,vac.new_vaccinations)) OVER (PARTITION BY dea.location ORDER BY dea.location,
+dea.date) AS total_vaccinated
+FROM CovidDataAnalysis..CovidDeaths dea -- set table name as dea
+JOIN CovidDataAnalysis..CovidVaccinations vac -- set table name as vac
+	ON dea.location = vac.location
+	AND dea.date = vac.date
+WHERE dea.continent IS NOT NULL 
+AND vac.new_vaccinations IS NOT NULL
+
+SELECT *
+FROM PercentPopulationVaccinated
