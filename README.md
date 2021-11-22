@@ -1,4 +1,4 @@
-# SQL_Sample_Projects
+# SQL_Sample_Projects  
 
 1. Covid Date Analysis
 Covid Data From https://ourworldindata.org/  
